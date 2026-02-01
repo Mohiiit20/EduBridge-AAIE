@@ -5,7 +5,12 @@ from routes.pdf_routes import pdf_bp
 from routes.simplify_routes import simplify_bp
 from routes.flashcard_routes import flashcard_bp
 from routes.mindmap_routes import mindmap_bp
+from routes.translation_routes import translation_bp  # NEW
+from routes.audio_routes import audio_bp  # NEW
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -24,6 +29,8 @@ app.register_blueprint(pdf_bp)
 app.register_blueprint(simplify_bp)
 app.register_blueprint(flashcard_bp)
 app.register_blueprint(mindmap_bp)
+app.register_blueprint(translation_bp)  # NEW
+app.register_blueprint(audio_bp)  # NEW
 
 # Ensure uploads folder exists
 os.makedirs("uploads", exist_ok=True)

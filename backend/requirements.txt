@@ -5,3 +5,4 @@ PyMuPDF
 openai
 google-genai
 requests
+deep-translator

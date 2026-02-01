@@ -38,4 +38,19 @@ export const generateFlashcards = (text) => {
   return apiClient.post('/generate_flashcards', { text });
 };
 
+export const translateText = (text) => {
+  return axios.post(`${API_BASE_URL}/translate`, { text });
+};
+
+// NEW: Audio Generation API
+export const generateAudio = (text, language) => {
+  return axios.post(
+    `${API_BASE_URL}/generate_audio`,
+    { text, language },
+    {
+      responseType: "blob", // Important for audio file
+    }
+  );
+};
+
 export default apiClient;

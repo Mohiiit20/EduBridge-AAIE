@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
-import { ArrowLeft, RefreshCw, X, Loader, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, RefreshCw, X, Loader, ChevronLeft, ChevronRight, RotateCcw, Volume2, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
 import * as api from '../services/api';
 
-const Output = ({ extractedData, originalData, onBack }) => {
+const Output = ({ extractedData, originalData, onBack, selectedLanguage }) => {
   const topics = Array.isArray(extractedData) ? extractedData : [];
   
   const [selectedTopic, setSelectedTopic] = useState(null);
@@ -11,6 +11,19 @@ const Output = ({ extractedData, originalData, onBack }) => {
   const [isSimplifying, setIsSimplifying] = useState(true);
   const [simplificationErrors, setSimplificationErrors] = useState({});
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Translation states
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translationProgress, setTranslationProgress] = useState(0);
+  
+  // Audio states
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [audioError, setAudioError] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [audioLoaded, setAudioLoaded] = useState(false);
+  const audioRef = useRef(null);
   
   // Mindmap states
   const [showMindmap, setShowMindmap] = useState(false);
@@ -32,6 +45,38 @@ const Output = ({ extractedData, originalData, onBack }) => {
       simplifyAllTopics();
     }
   }, []);
+
+  // Audio event listeners
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const updateTime = () => setCurrentTime(audio.currentTime);
+    const updateDuration = () => setDuration(audio.duration);
+    const handleEnded = () => setIsPlaying(false);
+
+    audio.addEventListener('timeupdate', updateTime);
+    audio.addEventListener('loadedmetadata', updateDuration);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', updateTime);
+      audio.removeEventListener('loadedmetadata', updateDuration);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [audioLoaded]);
+
+  // Reset audio when topic changes
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+      setAudioLoaded(false);
+      setCurrentTime(0);
+      setDuration(0);
+      setAudioError(null);
+    }
+  }, [selectedTopic]);
 
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -88,11 +133,148 @@ const Output = ({ extractedData, originalData, onBack }) => {
     }
     
     setIsSimplifying(false);
+    
+    // If Hindi is selected, translate all topics
+    if (selectedLanguage === "hindi") {
+      await translateAllTopics(results);
+    } else {
+      setIsProcessing(false);
+      if (results.length > 0) {
+        setSelectedTopic(results[0]);
+      }
+    }
+  };
+
+  // Translation function
+  const translateAllTopics = async (topicsToTranslate) => {
+    setIsTranslating(true);
+    setTranslationProgress(0);
+    
+    const totalTopics = topicsToTranslate.length;
+    const translatedResults = [];
+    
+    for (let index = 0; index < topicsToTranslate.length; index++) {
+      const topic = topicsToTranslate[index];
+      
+      try {
+        // Translate topic name
+        const topicResponse = await api.translateText(topic.topic);
+        const topicHindi = topicResponse.data.data.translated_text;
+        
+        // Translate content
+        const contentResponse = await api.translateText(topic.content);
+        const contentHindi = contentResponse.data.data.translated_text;
+        
+        translatedResults.push({
+          ...topic,
+          topic_hindi: topicHindi,
+          content_hindi: contentHindi,
+          translated: true
+        });
+        
+        setTranslationProgress(Math.round(((index + 1) / totalTopics) * 100));
+        
+      } catch (err) {
+        translatedResults.push({
+          ...topic,
+          topic_hindi: topic.topic,
+          content_hindi: topic.content,
+          translated: false,
+          translation_error: err.message
+        });
+        
+        setTranslationProgress(Math.round(((index + 1) / totalTopics) * 100));
+      }
+      
+      setSimplifiedTopics([...translatedResults]);
+      
+      if (index < topicsToTranslate.length - 1) {
+        await delay(1500); // Delay between translations
+      }
+    }
+    
+    setIsTranslating(false);
     setIsProcessing(false);
     
-    if (results.length > 0) {
-      setSelectedTopic(results[0]);
+    if (translatedResults.length > 0) {
+      setSelectedTopic(translatedResults[0]);
     }
+  };
+
+  // Audio generation function
+  const handleGenerateAudio = async () => {
+    if (!selectedTopic) return;
+    
+    setIsGeneratingAudio(true);
+    setAudioError(null);
+    setAudioLoaded(false);
+    
+    try {
+      // Determine which text to use based on language
+      const textToSpeak = selectedLanguage === "hindi" && selectedTopic.content_hindi
+        ? selectedTopic.content_hindi
+        : selectedTopic.content;
+      
+      const response = await api.generateAudio(textToSpeak, selectedLanguage);
+      
+      // Create a blob URL and set it to audio element
+      const audioBlob = new Blob([response.data], { type: 'audio/mpeg' });
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      if (audioRef.current) {
+        audioRef.current.src = audioUrl;
+        audioRef.current.load();
+        setAudioLoaded(true);
+        // Auto-play after loading
+        audioRef.current.play();
+        setIsPlaying(true);
+      }
+      
+    } catch (err) {
+      setAudioError(err.response?.data?.message || err.message || 'Failed to generate audio');
+    } finally {
+      setIsGeneratingAudio(false);
+    }
+  };
+
+  // Audio control functions
+  const togglePlayPause = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+      } else {
+        audioRef.current.play();
+        setIsPlaying(true);
+      }
+    }
+  };
+
+  const handleSeek = (e) => {
+    const newTime = parseFloat(e.target.value);
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const skipBackward = () => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = Math.max(0, currentTime - 10);
+    }
+  };
+
+  const skipForward = () => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = Math.min(duration, currentTime + 10);
+    }
+  };
+
+  const formatTime = (timeInSeconds) => {
+    if (isNaN(timeInSeconds)) return '0:00';
+    const minutes = Math.floor(timeInSeconds / 60);
+    const seconds = Math.floor(timeInSeconds % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
   const retrySimplification = async (topicIndex) => {
@@ -146,8 +328,13 @@ const Output = ({ extractedData, originalData, onBack }) => {
     setShowMindmap(true);
     
     try {
+      // Use Hindi content if available, otherwise English
+      const contentForMindmap = selectedLanguage === "hindi" && selectedTopic.content_hindi
+        ? selectedTopic.content_hindi
+        : selectedTopic.content;
+      
       const response = await api.generateMindmap({
-        text: selectedTopic.content
+        text: contentForMindmap
       });
       
       setMindmapData(response.data.data);
@@ -173,8 +360,13 @@ const Output = ({ extractedData, originalData, onBack }) => {
     setShowFlashcards(true);
     
     try {
+      // Use Hindi content if available, otherwise English
+      const contentForFlashcards = selectedLanguage === "hindi" && selectedTopic.content_hindi
+        ? selectedTopic.content_hindi
+        : selectedTopic.content;
+      
       const response = await api.generateFlashcards({
-        text: selectedTopic.content
+        text: contentForFlashcards
       });
       
       let flashcards = response.data.data;
@@ -214,6 +406,9 @@ const Output = ({ extractedData, originalData, onBack }) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-gray-100">
+      {/* Hidden audio element */}
+      <audio ref={audioRef} />
+
       <header className="bg-gray-800 border-b border-gray-700 shadow-lg">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -229,6 +424,10 @@ const Output = ({ extractedData, originalData, onBack }) => {
             <h1 className="text-2xl font-bold text-white flex items-center gap-3">
               <span className="text-3xl">📚</span>
               Learning Dashboard
+              {/* Language indicator */}
+              <span className="text-sm bg-blue-600 px-3 py-1 rounded-full">
+                {selectedLanguage === "hindi" ? "हिंदी" : "English"}
+              </span>
             </h1>
           </div>
         </div>
@@ -241,54 +440,81 @@ const Output = ({ extractedData, originalData, onBack }) => {
               Topics ({topics.length})
             </h2>
             <nav className="space-y-2">
-              {topics.map((topic, index) => (
-                <button
-                  key={index}
-                  onClick={() => handleTopicClick(topic)}
-                  className={`w-full text-left px-4 py-3 rounded-lg transition-all duration-200 ${
-                    selectedTopic && selectedTopic.topic === topic.topic
-                      ? 'bg-blue-600 text-white shadow-lg'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white'
-                  }`}
-                >
-                  <span className="font-medium text-sm leading-tight">
-                    {topic.topic || `Topic ${index + 1}`}
-                  </span>
-                </button>
-              ))}
+              {topics.map((topic, index) => {
+                const simplifiedTopic = simplifiedTopics[index];
+                const displayTopic = simplifiedTopic || topic;
+                
+                return (
+                  <button
+                    key={index}
+                    onClick={() => handleTopicClick(topic)}
+                    className={`w-full text-left px-4 py-3 rounded-lg transition-all duration-200 ${
+                      selectedTopic && selectedTopic.topic === topic.topic
+                        ? 'bg-blue-600 text-white shadow-lg'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white'
+                    }`}
+                  >
+                    {/* Show both English and Hindi topic names */}
+                    <span className="font-medium text-sm leading-tight block">
+                      {topic.topic || `Topic ${index + 1}`}
+                    </span>
+                    {selectedLanguage === "hindi" && displayTopic.topic_hindi && (
+                      <span className="text-xs text-gray-300 mt-1 block opacity-80">
+                        {displayTopic.topic_hindi}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </nav>
           </aside>
 
           <section className="flex-1 bg-gray-800 rounded-xl shadow-md p-6 max-h-[calc(100vh-180px)] overflow-y-auto">
-            {isSimplifying ? (
+            {isSimplifying || isTranslating ? (
               <div className="flex flex-col items-center justify-center h-full space-y-6">
                 <div className="w-full max-w-md">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-gray-300 font-medium">Simplifying topics...</span>
-                    <span className="text-blue-400 font-semibold">{simplificationProgress}%</span>
+                    <span className="text-gray-300 font-medium">
+                      {isSimplifying ? "Simplifying topics..." : "Translating to Hindi..."}
+                    </span>
+                    <span className="text-blue-400 font-semibold">
+                      {isSimplifying ? simplificationProgress : translationProgress}%
+                    </span>
                   </div>
                   <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
                     <div 
                       className="bg-gradient-to-r from-blue-500 to-blue-600 h-full rounded-full transition-all duration-300 ease-out"
-                      style={{ width: `${simplificationProgress}%` }}
+                      style={{ width: `${isSimplifying ? simplificationProgress : translationProgress}%` }}
                     />
                   </div>
                   <p className="text-gray-400 text-sm mt-3 text-center">
-                    {Math.round((simplificationProgress / 100) * topics.length)} of {topics.length} topics completed
+                    {isSimplifying
+                      ? `${Math.round((simplificationProgress / 100) * topics.length)} of ${topics.length} topics completed`
+                      : `${Math.round((translationProgress / 100) * topics.length)} of ${topics.length} topics translated`}
                     <br />
-                    <span className="text-xs text-gray-500">Processing one topic every 2 seconds...</span>
+                    <span className="text-xs text-gray-500">
+                      {isSimplifying ? "Processing one topic every 2 seconds..." : "Please wait..."}
+                    </span>
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-gray-400">
                   <div className="animate-spin rounded-full h-5 w-5 border-2 border-gray-400 border-t-blue-500" />
-                  <span>Please wait...</span>
+                  <span>Processing...</span>
                 </div>
               </div>
             ) : selectedTopic ? (
               <div className="bg-gray-750 rounded-lg p-6 shadow-inner">
-                <h2 className="text-2xl font-bold mb-4 text-blue-300 border-b border-gray-600 pb-3">
-                  {selectedTopic.topic}
-                </h2>
+                {/* Topic header with both languages */}
+                <div className="mb-4 border-b border-gray-600 pb-3">
+                  <h2 className="text-2xl font-bold text-blue-300">
+                    {selectedTopic.topic}
+                  </h2>
+                  {selectedLanguage === "hindi" && selectedTopic.topic_hindi && (
+                    <h3 className="text-xl font-semibold text-blue-200 mt-2">
+                      {selectedTopic.topic_hindi}
+                    </h3>
+                  )}
+                </div>
                 
                 {selectedTopic.error ? (
                   <div className="bg-red-900/20 border border-red-500 rounded-lg p-4 mb-4">
@@ -317,11 +543,121 @@ const Output = ({ extractedData, originalData, onBack }) => {
                     )}
                   </div>
                 ) : (
-                  <div className="prose prose-invert max-w-none">
-                    <p className="text-gray-200 leading-relaxed text-base whitespace-pre-wrap">
-                      {selectedTopic.content}
-                    </p>
-                  </div>
+                  <>
+                    <div className="prose prose-invert max-w-none mb-6">
+                      <p className="text-gray-200 leading-relaxed text-base whitespace-pre-wrap">
+                        {/* Display Hindi content if available, otherwise English */}
+                        {selectedLanguage === "hindi" && selectedTopic.content_hindi
+                          ? selectedTopic.content_hindi
+                          : selectedTopic.content}
+                      </p>
+                    </div>
+
+                    {/* Audio Player Section */}
+                    <div className="mt-8 pt-6 border-t border-gray-700">
+                      <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 rounded-xl p-6 border border-blue-500/30">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                            <Volume2 size={20} className="text-blue-400" />
+                            Audio Playback
+                          </h3>
+                          {audioLoaded && (
+                            <span className="text-sm text-gray-400">
+                              {formatTime(currentTime)} / {formatTime(duration)}
+                            </span>
+                          )}
+                        </div>
+
+                        {audioError && (
+                          <div className="mb-4 p-3 bg-red-900/20 border border-red-500 rounded-lg">
+                            <p className="text-red-300 text-sm">{audioError}</p>
+                          </div>
+                        )}
+
+                        {!audioLoaded ? (
+                          <button
+                            onClick={handleGenerateAudio}
+                            disabled={isGeneratingAudio}
+                            className={`w-full flex items-center justify-center gap-3 px-6 py-4 rounded-lg font-medium transition-all ${
+                              isGeneratingAudio
+                                ? 'bg-blue-600/50 cursor-not-allowed'
+                                : 'bg-blue-600 hover:bg-blue-700 active:scale-95'
+                            } text-white`}
+                          >
+                            {isGeneratingAudio ? (
+                              <>
+                                <Loader size={20} className="animate-spin" />
+                                <span>Generating Audio...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Volume2 size={20} />
+                                <span>Generate Audio</span>
+                              </>
+                            )}
+                          </button>
+                        ) : (
+                          <div className="space-y-4">
+                            {/* Progress Bar */}
+                            <div className="relative">
+                              <input
+                                type="range"
+                                min="0"
+                                max={duration || 0}
+                                value={currentTime}
+                                onChange={handleSeek}
+                                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                style={{
+                                  background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(currentTime / duration) * 100}%, #374151 ${(currentTime / duration) * 100}%, #374151 100%)`
+                                }}
+                              />
+                            </div>
+
+                            {/* Controls */}
+                            <div className="flex items-center justify-center gap-4">
+                              <button
+                                onClick={skipBackward}
+                                className="p-3 bg-gray-700 hover:bg-gray-600 rounded-full transition-all active:scale-95"
+                                title="Skip back 10s"
+                              >
+                                <SkipBack size={20} className="text-white" />
+                              </button>
+
+                              <button
+                                onClick={togglePlayPause}
+                                className="p-4 bg-blue-600 hover:bg-blue-700 rounded-full transition-all active:scale-95 shadow-lg"
+                                title={isPlaying ? 'Pause' : 'Play'}
+                              >
+                                {isPlaying ? (
+                                  <Pause size={24} className="text-white" fill="white" />
+                                ) : (
+                                  <Play size={24} className="text-white ml-1" fill="white" />
+                                )}
+                              </button>
+
+                              <button
+                                onClick={skipForward}
+                                className="p-3 bg-gray-700 hover:bg-gray-600 rounded-full transition-all active:scale-95"
+                                title="Skip forward 10s"
+                              >
+                                <SkipForward size={20} className="text-white" />
+                              </button>
+                            </div>
+
+                            {/* Regenerate Button */}
+                            <button
+                              onClick={handleGenerateAudio}
+                              disabled={isGeneratingAudio}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded-lg transition"
+                            >
+                              <RefreshCw size={16} />
+                              Regenerate Audio
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             ) : (
@@ -354,9 +690,9 @@ const Output = ({ extractedData, originalData, onBack }) => {
               </button>
               <button
                 onClick={generateMindmap}
-                disabled={!selectedTopic || isSimplifying}
+                disabled={!selectedTopic || isSimplifying || isTranslating}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${
-                  selectedTopic && !isSimplifying
+                  selectedTopic && !isSimplifying && !isTranslating
                     ? 'bg-purple-600 hover:bg-purple-700 text-white cursor-pointer'
                     : 'bg-gray-700 text-gray-500 cursor-not-allowed'
                 }`}
@@ -375,9 +711,9 @@ const Output = ({ extractedData, originalData, onBack }) => {
               </button>
               <button
                 onClick={generateFlashcards}
-                disabled={!selectedTopic || isSimplifying}
+                disabled={!selectedTopic || isSimplifying || isTranslating}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${
-                  selectedTopic && !isSimplifying
+                  selectedTopic && !isSimplifying && !isTranslating
                     ? 'bg-green-600 hover:bg-green-700 text-white cursor-pointer'
                     : 'bg-gray-700 text-gray-500 cursor-not-allowed'
                 }`}
