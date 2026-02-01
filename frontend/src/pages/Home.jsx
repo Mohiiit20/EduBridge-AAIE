@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { ArrowRight, Upload, Loader } from "lucide-react";
+import { ArrowRight, Upload, Loader, Globe } from "lucide-react";
 import * as api from "../services/api";
 import Output from "./Output";
 
@@ -11,6 +11,7 @@ function Home() {
   const [originalData, setOriginalData] = useState(null);
   const [showOutput, setShowOutput] = useState(false);
   const [error, setError] = useState(null);
+  const [selectedLanguage, setSelectedLanguage] = useState("english"); // NEW
   const fileRef = useRef(null);
 
   const handleProcessText = async () => {
@@ -52,6 +53,7 @@ function Home() {
     setFile(null);
     setText("");
     setError(null);
+    setSelectedLanguage("english");
   };
 
   const onPickFile = () => fileRef.current?.click();
@@ -62,7 +64,14 @@ function Home() {
   const isActive = text.trim() !== "" || file !== null;
 
   if (showOutput && extractedData) {
-    return <Output extractedData={extractedData} originalData={originalData} onBack={handleBack} />;
+    return (
+      <Output
+        extractedData={extractedData}
+        originalData={originalData}
+        onBack={handleBack}
+        selectedLanguage={selectedLanguage} // NEW: Pass language to Output
+      />
+    );
   }
 
   return (
@@ -79,6 +88,22 @@ function Home() {
           {error}
         </div>
       )}
+
+      {/* NEW: Language Selector */}
+      <div className="w-full max-w-3xl mb-4">
+        <div className="flex items-center gap-3 bg-stone-900 rounded-xl p-4 border border-stone-700">
+          <Globe className="text-sky-400" size={24} />
+          <label className="text-white font-medium">Select Language:</label>
+          <select
+            value={selectedLanguage}
+            onChange={(e) => setSelectedLanguage(e.target.value)}
+            className="flex-1 bg-stone-800 text-white px-4 py-2 rounded-lg border border-stone-600 focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer"
+          >
+            <option value="english">English</option>
+            <option value="hindi">Hindi (हिंदी)</option>
+          </select>
+        </div>
+      </div>
 
       <div className="relative w-full max-w-3xl mb-4">
         <textarea

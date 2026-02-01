@@ -1,18 +1,24 @@
-from utils.gemini_client import PROJECT_ID, LOCATION, ENDPOINT_ID
+from utils.gemini_client import MODEL
 
-def simplify_text(client, text):
-    endpoint_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/endpoints/{ENDPOINT_ID}"
-
+def simplify_text(client, text: str):
     prompt = (
-        "You are a friendly teacher helping children with learning disabilities "
-        "understand NCERT concepts. Your job is to rewrite the text in a way that is:\n"
-        "- Very simple and clear.\n"
-        "- Positive, supportive, and encouraging.\n"
-        "- Uses examples from everyday life.\n"
-        "- Explains ideas step by step.\n\n"
-        f"Here is the text to simplify:\n{text}\n\n"
-        "Now rewrite it in this simple, child-friendly way."
+        "Rewrite the following NCERT textbook content in simplified language.\n\n"
+        "Guidelines:\n"
+        "- Keep the explanation accurate to the original meaning.\n"
+        "- Use simple words and short sentences.\n"
+        "- Explain ideas clearly and step by step.\n"
+        "- Use everyday examples only where helpful.\n"
+        "- Do NOT add greetings, questions, or conversational phrases.\n"
+        "- Do NOT address the reader directly.\n"
+        "- Do NOT add motivational or emotional language.\n"
+        "- Write in a neutral, textbook-style explanatory tone.\n\n"
+        f"Original text:\n{text}\n\n"
+        "Simplified explanation:"
     )
 
-    response = client.models.generate_content(model=endpoint_name, contents=prompt)
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=prompt
+    )
+
     return response.text
