@@ -6,3 +6,6 @@ openai
 google-genai
 requests
 deep-translator
+fpdf2
+python-docx
+ollama
