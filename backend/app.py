@@ -13,6 +13,7 @@ from routes.image_routes import image_bp
 from routes.mcq_routes import mcq_bp
 from routes.mindmap_explain_routes import mindmap_explain_bp
 from routes.insights_routes import insights_bp
+from routes.chatbot_routes import chatbot_bp
 from routes.feedback_routes import feedback_bp
 
 import os
@@ -43,6 +44,7 @@ app.register_blueprint(image_bp)
 app.register_blueprint(mcq_bp)
 app.register_blueprint(mindmap_explain_bp)
 app.register_blueprint(insights_bp)
+app.register_blueprint(chatbot_bp)
 app.register_blueprint(feedback_bp)
 
 os.makedirs("uploads", exist_ok=True)

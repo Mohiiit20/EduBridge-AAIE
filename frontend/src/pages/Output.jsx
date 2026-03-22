@@ -11,6 +11,7 @@ import QuizModal      from "../components/output/QuizModal";
 import ImagesModal    from "../components/output/ImagesModal";
 import InsightsModal  from "../components/output/InsightsModal";
 import useExportPDF   from "../hooks/useExportPDF";
+import ChatbotModal   from "../components/output/ChatbotModal";
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -53,7 +54,10 @@ const Output = ({ extractedData, originalData, onBack, selectedLanguage }) => {
   const [showInsights, setShowInsights]         = useState(false);
   const [insightsData, setInsightsData]         = useState(null);
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
-  const [insightsError, setInsightsError]       = useState(null);
+  const [insightsError, setInsightsError] = useState(null);
+
+  // ── Chatbot state ─────────────────────────────────────────────
+  const [showChatbot, setShowChatbot] = useState(false);
 
   const chapterTitle = originalData?.chapter_title || topics[0]?.chapter || "Chapter Notes";
 
@@ -81,6 +85,7 @@ const Output = ({ extractedData, originalData, onBack, selectedLanguage }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── CHANGE 1: parse new {text, charts, content_type} response ──
   const simplifyAllTopics = async () => {
     if (isProcessing) return;
     setIsProcessing(true); setIsSimplifying(true); setSimplificationProgress(0); setSimplificationErrors({});
@@ -89,7 +94,17 @@ const Output = ({ extractedData, originalData, onBack, selectedLanguage }) => {
       const topic = topics[i];
       try {
         const res = await api.simplifyText(topic.content);
-        results.push({ ...topic, content: res.data.data, originalContent: topic.content, simplified: true, error: null });
+        const d = res.data.data;
+        const isObj = typeof d === "object" && d !== null && "text" in d;
+        results.push({
+          ...topic,
+          content:      isObj ? d.text    : d,
+          charts:       isObj ? (d.charts || []) : [],
+          content_type: isObj ? d.content_type   : "general",
+          originalContent: topic.content,
+          simplified: true,
+          error: null,
+        });
       } catch (err) {
         const msg = err.response?.data?.message || err.message;
         setSimplificationErrors((prev) => ({ ...prev, [i]: msg }));
@@ -123,13 +138,23 @@ const Output = ({ extractedData, originalData, onBack, selectedLanguage }) => {
     if (translated.length > 0) setSelectedTopic(translated[0]);
   };
 
+  // ── CHANGE 2: retry also parses new response ──────────────────
   const retrySimplification = async (topicIndex) => {
     const topic = simplifiedTopics[topicIndex];
     if (!topic || !originalData) return;
     try {
       const res = await api.simplifyText(originalData[topicIndex].content);
       const updated = [...simplifiedTopics];
-      updated[topicIndex] = { ...topic, content: res.data.data, simplified: true, error: null };
+      const rd = res.data.data;
+      const isObj = typeof rd === "object" && rd !== null && "text" in rd;
+      updated[topicIndex] = {
+        ...topic,
+        content:      isObj ? rd.text    : rd,
+        charts:       isObj ? (rd.charts || []) : [],
+        content_type: isObj ? rd.content_type   : "general",
+        simplified: true,
+        error: null,
+      };
       setSimplifiedTopics(updated);
       setSimplificationErrors((prev) => { const n = { ...prev }; delete n[topicIndex]; return n; });
       if (selectedTopic?.topic === topic.topic) setSelectedTopic(updated[topicIndex]);
@@ -262,6 +287,12 @@ const Output = ({ extractedData, originalData, onBack, selectedLanguage }) => {
     finally { setIsGeneratingInsights(false); }
   };
 
+  // ── Chatbot ───────────────────────────────────────────────────
+  const openChatbot = () => {
+    if (!selectedTopic) return;
+    setShowChatbot(true);
+  };
+
   if (!topics.length) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-primary)" }}>
       <div className="text-center">
@@ -326,12 +357,40 @@ const Output = ({ extractedData, originalData, onBack, selectedLanguage }) => {
         </div>
       </header>
 
-      {/* Main */}
-      <main className="container mx-auto px-4 py-5">
-        <div className="flex flex-col lg:flex-row gap-5">
-          <TopicsSidebar topics={topics} simplifiedTopics={simplifiedTopics} selectedTopic={selectedTopic} selectedLanguage={selectedLanguage} onTopicClick={handleTopicClick} />
-          <ContentPanel selectedTopic={selectedTopic} simplifiedTopics={simplifiedTopics} selectedLanguage={selectedLanguage} isSimplifying={isSimplifying} isTranslating={isTranslating} simplificationProgress={simplificationProgress} translationProgress={translationProgress} onRetrySimplification={retrySimplification} />
-          <Studio selectedTopic={selectedTopic} isSimplifying={isSimplifying} isTranslating={isTranslating} onMindmap={generateMindmap} onFlashcards={generateFlashcards} onQuiz={generateQuiz} onImages={generateImages} onInsights={generateInsights} />
+      <main className="container mx-auto px-4 py-6">
+        <div className="flex flex-col lg:flex-row gap-6">
+          <TopicsSidebar
+            topics={topics}
+            simplifiedTopics={simplifiedTopics}
+            selectedTopic={selectedTopic}
+            selectedLanguage={selectedLanguage}
+            onTopicClick={handleTopicClick}
+          />
+
+          {/* CHANGE 3: pass charts prop to ContentPanel */}
+          <ContentPanel
+            charts={selectedTopic?.charts || []}
+            selectedTopic={selectedTopic}
+            simplifiedTopics={simplifiedTopics}
+            selectedLanguage={selectedLanguage}
+            isSimplifying={isSimplifying}
+            isTranslating={isTranslating}
+            simplificationProgress={simplificationProgress}
+            translationProgress={translationProgress}
+            onRetrySimplification={retrySimplification}
+          />
+
+          <Studio
+            selectedTopic={selectedTopic}
+            isSimplifying={isSimplifying}
+            isTranslating={isTranslating}
+            onMindmap={generateMindmap}
+            onFlashcards={generateFlashcards}
+            onQuiz={generateQuiz}
+            onImages={generateImages}
+            onInsights={generateInsights}
+            onDoubt={openChatbot}
+          />
         </div>
       </main>
 
@@ -347,10 +406,57 @@ const Output = ({ extractedData, originalData, onBack, selectedLanguage }) => {
           onToggleExplainPlayPause={toggleExplainPlayPause} onExplainSeek={handleExplainSeek} formatTime={formatTime}
         />
       )}
-      {showFlashcards && <FlashcardModal flashcards={flashcardsData} isLoading={isGeneratingFlashcards} error={flashcardsError} topicName={selectedTopic?.topic} selectedLanguage={selectedLanguage} onClose={() => { setShowFlashcards(false); setFlashcardsData(null); setFlashcardsError(null); }} onRetry={generateFlashcards} />}
-      {showQuiz && <QuizModal quizData={quizData} isLoading={isGeneratingQuiz} error={quizError} onClose={() => { setShowQuiz(false); setQuizData(null); setQuizError(null); }} />}
-      {showImages && <ImagesModal selectedTopic={selectedTopic} imagesData={imagesData} isLoading={isGeneratingImages} error={imagesError} onClose={() => { setShowImages(false); setImagesData(null); setImagesError(null); }} onRetry={generateImages} />}
-      {showInsights && <InsightsModal data={insightsData} isLoading={isGeneratingInsights} error={insightsError} topicName={selectedTopic?.topic} onClose={() => { setShowInsights(false); setInsightsData(null); setInsightsError(null); }} onRetry={generateInsights} />}
+
+      {showFlashcards && (
+        <FlashcardModal
+          flashcards={flashcardsData}
+          isLoading={isGeneratingFlashcards}
+          error={flashcardsError}
+          topicName={selectedTopic?.topic}
+          selectedLanguage={selectedLanguage}
+          onClose={() => { setShowFlashcards(false); setFlashcardsData(null); setFlashcardsError(null); }}
+          onRetry={generateFlashcards}
+        />
+      )}
+
+      {showQuiz && (
+        <QuizModal
+          quizData={quizData}
+          isLoading={isGeneratingQuiz}
+          error={quizError}
+          onClose={() => { setShowQuiz(false); setQuizData(null); setQuizError(null); }}
+        />
+      )}
+
+      {showImages && (
+        <ImagesModal
+          selectedTopic={selectedTopic}
+          imagesData={imagesData}
+          isLoading={isGeneratingImages}
+          error={imagesError}
+          onClose={() => { setShowImages(false); setImagesData(null); setImagesError(null); }}
+          onRetry={generateImages}
+        />
+      )}
+
+      {showInsights && (
+        <InsightsModal
+          data={insightsData}
+          isLoading={isGeneratingInsights}
+          error={insightsError}
+          topicName={selectedTopic?.topic}
+          onClose={() => { setShowInsights(false); setInsightsData(null); setInsightsError(null); }}
+          onRetry={generateInsights}
+        />
+      )}
+
+      {showChatbot && (
+        <ChatbotModal
+          selectedTopic={selectedTopic}
+          selectedLanguage={selectedLanguage}
+          onClose={() => setShowChatbot(false)}
+        />
+      )}
     </div>
   );
 };

@@ -39,4 +39,3 @@ def generate_json_dataset(client, text: str):
 
     except (OpenAIError, json.JSONDecodeError) as e:
         return {"error": str(e)}
-

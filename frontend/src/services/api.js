@@ -102,4 +102,7 @@ export const explainFlashcard = (question, answer, language) =>
     language
   });
 
+export const chatWithBot = (payload) =>
+  axios.post(`${API_BASE_URL}/chat`, payload);
+
 export default apiClient;
